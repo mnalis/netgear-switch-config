@@ -1,0 +1,123 @@
+#!/usr/bin/expect
+
+set timeout 10
+
+set ip 192.168.0.254
+set port 60000
+set user admin
+set password FIX-YOUR-PASSWORD
+set adminprompt "(Broadcom FASTPATH Switching) #"
+set userprompt "(Broadcom FASTPATH Switching) >"
+
+set cmd [lindex $argv 0]
+set vlan [lindex $argv 1]
+set iface [lindex $argv 2]
+set blackhole "[expr $iface + 3000 ]"
+
+puts "EXECUTING WITH CMD=$cmd ARGV=$argv PORT=$iface\n------------------------------------------------------------\n"
+
+spawn /usr/bin/telnet $ip $port
+
+expect "Applying Interface configuration, please wait ..."
+send "$user\r";
+
+expect "Password:"
+send "$password\r"
+
+expect $userprompt
+send "enable\r"
+expect "Password:"
+send "\r"
+
+expect $adminprompt
+send "terminal length 47\r"
+expect $adminprompt
+
+
+# show command
+if { $cmd == "login" } {
+	interact
+	exit
+} elseif { $cmd == "show" } {
+	if { $vlan == "vlans" } {
+	    #exp_internal 1
+	    send "show vlan brief\r"
+	    expect {
+		-ex "or (q)uit" { send "\r" ; exp_continue } 
+		$adminprompt
+	    }
+	} else {
+	    send "show vlan $vlan\r"
+	    expect {
+		"or (q)uit" { send "\r" } 
+                 "VLAN does not exist." { exit 1 }
+	    }
+	    expect $adminprompt 
+	}
+} elseif { $cmd == "add" } {
+	send "vlan database\r"
+	expect "(Vlan)#"
+	send "vlan $vlan\r"
+	expect "(Vlan)#"
+	send "vlan makestatic $vlan\r"
+	expect "(Vlan)#"
+	send "vlan name $vlan vlan_$vlan\r"
+	expect "(Vlan)#"
+} elseif { $cmd == "del" } {
+	send "vlan database\r"
+	expect "(Vlan)#"
+	send "no vlan $vlan\r"
+	expect "(Vlan)#"
+} elseif { $cmd == "save" } {
+#write memory
+#Are you sure you want to save? (y/n) y
+#Configuration Saved!
+	send "write memory\r"
+	expect "re you sure you want to save? (y/n)"
+	send "y\r"
+#	interact
+	expect {
+#		puts "GOT: $expect_out(0,string)\n"
+		"Configuration Saved!" { puts "SAVE OK" ; exit 0 }
+#		"*" { puts "SAVE FAILED" ; exit 1 }
+	}
+} elseif { $cmd == "tagged" } {
+	send "configure\r"
+	expect "(Config)#"
+	send "interface 0/$iface\r"
+	expect "(Interface 0/$iface)#"
+	send "vlan participation include $vlan\r"
+	expect "(Interface 0/$iface)#"
+	send "vlan tagging $vlan\r"
+	expect "(Interface 0/$iface)#"
+	send "vlan pvid $blackhole\r"
+	expect "(Interface 0/$iface)#"
+} elseif { $cmd == "untagged" } {
+	send "configure\r"
+	expect "(Config)#"
+	send "interface 0/$iface\r"
+	expect "(Interface 0/$iface)#"
+	send "vlan participation include $vlan\r"
+	expect "(Interface 0/$iface)#"
+	send "no vlan tagging $vlan\r"
+	expect "(Interface 0/$iface)#"
+	send "vlan pvid $vlan\r"
+	expect "(Interface 0/$iface)#"
+} elseif { $cmd == "exclude" } {
+	send "configure\r"
+	expect "(Config)#"
+	send "interface 0/$iface\r"
+	expect "(Interface 0/$iface)#"
+	send "vlan participation auto $vlan\r"
+	expect "(Interface 0/$iface)#"
+	send "no vlan tagging $vlan\r"
+	expect "(Interface 0/$iface)#"
+	send "vlan pvid $blackhole\r"
+	expect "(Interface 0/$iface)#"
+} else {
+	puts "Usage: netgear_vlan login|show|create|include|exclude vlans|1234 1-24"
+	puts "       netgear_vlan cmd vlanid interface"
+	exit
+}
+
+puts ""
